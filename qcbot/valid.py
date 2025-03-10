@@ -2,7 +2,7 @@ import numpy as np
 from rdkit import Chem
 pt = Chem.GetPeriodicTable()
 
-def is_molecule_collapse(atoms, coords, threshold_ratio=0.8):
+def is_molecule_confortable(atoms, coords, threshold_ratio=0.8):
     try:
         dist_mat = np.array([np.linalg.norm(coords - coord,axis=1) for coord in coords])
         for i in range(len(dist_mat)):
