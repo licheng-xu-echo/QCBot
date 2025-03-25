@@ -5,6 +5,7 @@ from molop.config import molopconfig
 import numpy as np
 import signal
 from contextlib import contextmanager
+from openbabel.pybel import (readfile,Outputfile) 
 pt = Chem.GetPeriodicTable()
 molopconfig.quiet()
 def generate_g16_input_file(gjf_file,atoms,coords,charge,multiplicity,method,jobtype,cpu,memory):
@@ -139,7 +140,17 @@ def symbol_pos_to_xyz_file(symbols,positions,xyz_file,title=""):
         f.write(f"{title}\n")
         for symbol, pos in zip(symbols, positions):
             f.write(f"{symbol:4s} {pos[0]:15f} {pos[1]:15f} {pos[2]:15f}\n")
-            
+
+def multi_symbol_pos_to_xyz_file(sym_pos_title_lst,xyz_file):
+    xyz_info = []
+    for symbols,positions,title in sym_pos_title_lst:
+        xyz_info.append(str(len(symbols)))
+        xyz_info.append(title)
+        for symbol, pos in zip(symbols, positions):
+            xyz_info.append(f"{symbol:4s} {pos[0]:15f} {pos[1]:15f} {pos[2]:15f}")
+    with open(xyz_file, 'w') as f:
+        f.writelines("\n".join(xyz_info))
+
 def get_charge_and_mult(atoms, charge=0, is_atom=False):
     """
     计算分子体系的电荷和自旋多重度
@@ -197,3 +208,12 @@ def get_calc_time(log_file):
             d,h,m,s = float(d),float(h),float(m),float(s)
             job_cpu_time = d*24*3600 + h*3600 + m*60 + s
     return elapsed_time,job_cpu_time
+
+def MolFormatConversion(input_file:str,output_file:str,input_format="xyz",output_format="sdf",verbose=False):
+    molecules = readfile(input_format,input_file)
+    output_file_writer = Outputfile(output_format,output_file,overwrite=True)
+    for i,molecule in enumerate(molecules):
+        output_file_writer.write(molecule)
+    output_file_writer.close()
+    if verbose:
+        print('%d molecules converted'%(i+1))

@@ -1,7 +1,9 @@
 import numpy as np
 from rdkit import Chem
 from scipy.spatial.distance import cdist
-
+from scipy.spatial.distance import pdist, squareform
+from scipy.sparse.csgraph import connected_components
+from scipy.spatial.transform import Rotation
 pt = Chem.GetPeriodicTable()
 
 def is_molecule_confortable(atoms, coords, threshold_ratio=0.8):
@@ -117,3 +119,42 @@ def find_isolated_atoms(atoms,coords, tolerance=1.2):
             isolated.append((i+1, atoms[i]))  # 原子编号从1开始
             
     return len(isolated) > 0, isolated
+
+def detect_isolated_molecules(elements, coordinates, tolerance=1.2):
+    """
+    判断分子结构中是否存在多个独立分子
+    参数：
+        elements: 原子元素符号列表，如['C', 'H', 'O'...]
+        coordinates: 原子三维坐标列表，如[[x1,y1,z1], [x2,y2,z2]...]
+        tolerance: 共价键距离容差系数，默认1.2倍共价半径之和
+    返回：
+        bool: 是否包含多个独立分子
+        int: 检测到的分子数量
+    """
+    # 定义常见元素的共价半径（单位：Å）[3](@ref)
+    
+    # 转换为numpy数组
+    coords = np.array(coordinates)
+    n_atoms = len(elements)
+    
+    # 生成原子对的共价半径之和矩阵
+    radius_matrix = np.zeros((n_atoms, n_atoms))
+    for i in range(n_atoms):
+        for j in range(n_atoms):
+            radius_matrix[i,j] = (pt.GetRcovalent(elements[i])+
+                                  pt.GetRcovalent(elements[j]))
+
+    
+    # 计算原子间距离矩阵[2](@ref)
+    dist_matrix = squareform(pdist(coords))
+    
+    # 构建邻接矩阵（基于共价键判断）
+    adj_matrix = (dist_matrix < (radius_matrix * tolerance)) & (dist_matrix > 0)
+    
+    # 使用图论算法检测连通分量[2,3](@ref)
+    _, labels = connected_components(adj_matrix, directed=False)
+    unique_labels = np.unique(labels)
+    
+    molecule_count = len(unique_labels)
+    return molecule_count > 1, molecule_count, labels
+
