@@ -19,9 +19,11 @@ class MoleculePose:
         self.reference_atom_idx = reference_atom_idx  # 新增
         if len(self.atoms) > 1:
             self.center = self._compute_center()
+            #self.principal_axes = self._compute_principal_axes()
             self.principal_axes = self._compute_principal_axes()
         else:
             self.center = self.coordinates[0]
+            #self.principal_axes = np.eye(3)  # 单原子分子，主方向为单位矩阵
             self.principal_axes = np.eye(3)  # 单原子分子，主方向为单位矩阵
     
     def _compute_center(self):
@@ -35,6 +37,9 @@ class MoleculePose:
     
     def _compute_principal_axes(self):
         """通过 PCA 计算主方向，并修正符号"""
+        if len(self.atoms) == 1:
+            return np.eye(3)  # 单原子分子，主方向为单位矩阵
+        
         centered = self.coordinates - self.center
         cov = np.cov(centered.T)
         eigenvalues, eigenvectors = np.linalg.eigh(cov)
@@ -56,7 +61,11 @@ class MoleculePose:
             if dot < 0:
                 axes[:, i] = -axis
         # ---------------------------------------------------------------------
-        
+
+        det = np.linalg.det(axes)
+        if det < 0:
+            axes[:, 2] *= -1  # 翻转第三个主方向
+
         return axes
     
     #-----------------------------------------
@@ -66,9 +75,11 @@ class MoleculePose:
         """返回质心位置向量 [x, y, z]"""
         return self.center
     
+    
     def get_principal_direction(self):
         """返回第一个主方向（单位向量）"""
         return self.principal_axes[:, 0]
+    
     
     def get_rotation_matrix(self):
         """返回旋转矩阵（3x3），将分子对齐到主方向"""
@@ -81,8 +92,27 @@ class MoleculePose:
     
     def get_axis_angle(self):
         """返回轴角表示 [ax, ay, az, angle_radians]"""
+        if len(self.atoms) == 1:
+            return np.array([0.0, 0.0, 0.0])  # 单原子分子，无旋转
         rotation = Rotation.from_matrix(self.get_rotation_matrix())
         return rotation.as_rotvec()  # 格式 [ax, ay, az]，角度为向量模长
+    
+    def get_rot_axis_and_angle(self):
+        if len(self.atoms) == 1:
+            return np.array([0.0, 0.0, 0.0]), 0.0  # 单原子分子，无旋转
+        axis_angle = self.get_axis_angle()
+        rot_axis = axis_angle / np.linalg.norm(axis_angle)
+        rot_angle_rad = np.linalg.norm(axis_angle)   # 弧度
+        rot_angle_deg = np.degrees(rot_angle_rad)  # 角度
+        return rot_axis, rot_angle_rad
+    
+    def get_rot_mat_from_axis_angle(self,rot_axis,rot_angle_rad):
+        if len(self.atoms) == 1:
+            return np.eye(3,3)  # 单原子分子，无旋转
+        rot_axis_norm = rot_axis / np.linalg.norm(rot_axis)
+        rot_vec = rot_axis_norm * rot_angle_rad
+        rotation = Rotation.from_rotvec(rot_vec)
+        return rotation.as_matrix()
     
     def get_euler_angles(self, sequence='zyx'):
         """返回欧拉角（弧度），默认顺序 Z-Y-X"""
@@ -98,6 +128,7 @@ class MoleculePose:
     #-----------------------------------------
     # 可视化与验证
     #-----------------------------------------
+    
     def align_molecule(self):
         """将分子坐标对齐到主方向，返回新坐标"""
         rotation_matrix = self.get_rotation_matrix()
