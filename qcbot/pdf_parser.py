@@ -346,3 +346,26 @@ def parse_atom_coordinate(line):
         x_coord = match.group(2).strip() + x_coord
     
     return element, [x_coord, match.group(4), match.group(5)]
+
+def parse_atom_coordinatev2(line):
+    """
+    将分子坐标行拆分为元素和坐标列表
+    
+    参数:
+        line: 字符串，格式如 "N,0,0.5598740651,2.5536949817,1.2494624052"
+    
+    返回:
+        tuple: (element, xyz_list)
+            - element: 元素符号字符串，如 'N'
+            - xyz_list: 包含三个浮点数的列表，如 [0.5598740651, 2.5536949817, 1.2494624052]
+    """
+    # 按逗号分割字符串
+    parts = line.strip().split(',')
+    
+    # 提取元素符号（第一个字段）
+    element = parts[0]
+    
+    # 提取xyz坐标（最后三个字段）
+    xyz_list = [float(coord) for coord in parts[-3:]]
+    
+    return element, xyz_list

@@ -120,7 +120,7 @@ def find_isolated_atoms(atoms,coords, tolerance=1.2):
             
     return len(isolated) > 0, isolated
 
-def detect_isolated_molecules(elements, coordinates, tolerance=1.2):
+def detect_isolated_molecules_old(elements, coordinates, tolerance=1.2):
     """
     判断分子结构中是否存在多个独立分子
     参数：
@@ -158,3 +158,43 @@ def detect_isolated_molecules(elements, coordinates, tolerance=1.2):
     molecule_count = len(unique_labels)
     return molecule_count > 1, molecule_count, labels
 
+def detect_isolated_molecules(elements, coordinates, tolerance=1.2):
+
+    coords = np.array(coordinates)
+    n_atoms = len(elements)
+    
+    # 生成原子对距离矩阵[2](@ref)
+    dist_matrix = squareform(pdist(coords))
+    np.fill_diagonal(dist_matrix, np.inf)  # 忽略自身距离
+    
+    # 构建邻接矩阵[3](@ref)
+    radius_matrix = np.zeros((n_atoms, n_atoms))
+    for i,j in np.ndindex(n_atoms, n_atoms):
+        radius_matrix[i,j] = pt.GetRcovalent(elements[i]) + pt.GetRcovalent(elements[j])
+    adj_matrix = (dist_matrix < (radius_matrix * tolerance)) & (dist_matrix > 0)
+    
+    # 初始连通分量检测[4](@ref)
+    _, labels = connected_components(adj_matrix, directed=False)
+    
+    # 单原子分子处理[2,4](@ref)
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    single_atom_labels = unique_labels[counts == 1]
+    
+    while len(single_atom_labels) > 0:
+        for label in single_atom_labels:
+            atom_idx = np.where(labels == label)[0][0]
+            
+            # 找到最近非自身原子[2](@ref)
+            min_dist_idx = np.nanargmin(dist_matrix[atom_idx])
+            nearest_label = labels[min_dist_idx]
+            
+            # 合并标签[4](@ref)
+            labels[labels == label] = nearest_label
+        
+        # 更新统计
+        unique_labels, counts = np.unique(labels, return_counts=True)
+        single_atom_labels = unique_labels[counts == 1]
+    
+    # 最终分子计数
+    molecule_count = len(unique_labels)
+    return molecule_count > 1, molecule_count, labels
