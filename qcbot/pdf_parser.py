@@ -434,3 +434,46 @@ def extract_coords_info_from_pdf(pdf_files,dst_dir,cpu=32,mem=80):
                 shutil.rmtree(geom_dir)
             print(f"[INFO] ~~~~~~~~~~~~~~~~~~~~~~~~~~ {len(match_text_groups)} geometries found in {filename}, gjf and xyz files generated ~~~~~~~~~~~~~~~~~~~~~~~~~~")
 
+
+def assign_file_type(xyz_files):
+    filtered_words = ["Units","units",
+    "Respresents","respresents",
+    "Exhibits","exhibits",
+    "Results","results",
+    "Outside","outside",
+    "Points","points",
+    "Reactants","reactants",
+    "Products","products",
+    "Reagents","reagents",
+    "Components","components"]
+    int_filtered_words = ["POINT","QUINT","point","quint"]
+    ts_geom = []
+    int_geom = []
+    other_geom = []
+    for xyz_file in xyz_files:
+        with open(xyz_file,"r") as fr:
+            lines = fr.readlines()
+        title = lines[1].strip()
+        title_blks = title.split("//")
+        match_flag = False
+        for title_blk in title_blks[-3:]:
+            if "TS" in title_blk or 'ts-' in title_blk or '-ts' == title_blk[-3:] or 'Ts-' in title_blk:
+                ts_geom.append((xyz_file,title_blk))
+                match_flag = True
+                break
+            elif "INT" in title_blk or "IM" in title_blk or 'IN' in title_blk or 'Int' in title_blk or 'int-' in title_blk or title_blk.isdigit():
+                filtered_word_match_flag = False
+                for filtered_word in int_filtered_words:
+                    if filtered_word in title_blk:
+                        filtered_word_match_flag = True
+                        break
+                if not filtered_word_match_flag:
+                    int_geom.append((xyz_file,title_blk))
+                    match_flag = True
+                    break
+            
+
+        if not match_flag:
+            other_geom.append((xyz_file,title_blk))
+
+    return ts_geom,int_geom,other_geom
