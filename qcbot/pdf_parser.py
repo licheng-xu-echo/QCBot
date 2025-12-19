@@ -1,7 +1,9 @@
-import fitz,re,json,os
+import fitz,re,json,os,shutil
 from rdkit import Chem
 import numpy as np
 from collections import Counter
+from .valid import check_hydrogens,is_molecule_confortable
+from copy import deepcopy
 pt = Chem.GetPeriodicTable()
 
 def drop_page_id_line(page_lines,page_id,page_id_len=15,bias=3):
@@ -325,3 +327,110 @@ def parse_atom_coordinatev2(line):
     xyz_list = [float(coord) for coord in parts[-3:]]
     
     return element, xyz_list
+
+def extract_coords_info_from_pdf(pdf_files,dst_dir,cpu=32,mem=80):
+    # match single column
+    single_atom_pattern = re.compile(r'^\s*([A-Za-z]{1,3})\d*[-+]?\s*([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\s*$') # fix Ru-0.11111 situation 
+    # match double column
+    dual_atom_pattern = re.compile(
+        r'^\s*([A-Za-z]{1,3})\d*[-+]?\s*([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\s*$'
+        r'^\s*([A-Za-z]{1,3})\d*[-+]?\s*([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\s+([+-]?\d+\.?\d*)\s*$')
+    zc_pattern = re.compile(r"^[A-Z][a-z]?,-?\d+,-?\d+\.\d+,-?\d+\.\d+,-?\d+\.\d+$")
+
+    for pdf_file in pdf_files:
+
+        filename = os.path.basename(pdf_file)[:-4]
+
+        #print(pdf_file)
+        geom_dir = f"./{dst_dir}/{filename}"
+        doc = fitz.open(pdf_file)
+        text_lst = [[i+1,page.get_text()] for i,page in enumerate(doc)]
+
+
+        # remove page index and empty lines
+        text_wo_page_id = []
+        for page_id,page_text in text_lst:
+            page_lines = page_text.split("\n")
+            #print(page_lines)
+            page_lines = clean_empty_lines(drop_space(page_lines))
+            text_wo_page_id.append(page_lines)
+        header_and_footer_elements = find_header_and_footer_elements(text_wo_page_id,len(text_wo_page_id)-10)
+        text_wo_page_id = [drop_page_with_specific_elements(page_lines,header_and_footer_elements) for page_lines in text_wo_page_id]
+        text_wo_page_id = [drop_page_id_line(page_lines,page_id) for page_id,page_lines in enumerate(text_wo_page_id)]
+
+        lines = []
+        for page_idx,page_lines in enumerate(text_wo_page_id):
+            lines.extend([(page_idx,line) for line in page_lines])
+        match_text = []
+        zc_match_text = []
+        for idx,(page_idx,line) in enumerate(lines):
+            single_match = single_atom_pattern.match(line)
+            dual_match = dual_atom_pattern.match(line)
+            zc_match = zc_pattern.match(line)
+            if single_match or dual_match:
+                match_text.append([idx,page_idx,line])
+            if zc_match:
+                zc_match_text.append([idx,page_idx,line])
+        if len(match_text) == 0 and len(zc_match_text) == 0:
+            print(f"[WARN] No match found in {filename}, skip")
+            continue
+        elif len(match_text) > 0:
+            match_text_groups = split_into_continuous_groups(match_text)
+            
+            title_lines = []
+            for group in match_text_groups:
+                start_idx = group[0][0]-10
+                end_idx = group[0][0]
+                title_lines.append("//".join([line[1] for line in lines[start_idx:end_idx]]))
+            
+            
+            geom_inf = [[parse_atom_coordinate(line[2]) for line in group] for group in match_text_groups]
+        else:
+            match_text = deepcopy(zc_match_text)
+            match_text_groups = split_into_continuous_groups(match_text)
+            
+            title_lines = []
+            for group in match_text_groups:
+                start_idx = group[0][0]-10
+                end_idx = group[0][0]
+                title_lines.append("//".join([line[1] for line in lines[start_idx:end_idx]]))
+            
+            
+            geom_inf = [[parse_atom_coordinatev2(line[2]) for line in group] for group in match_text_groups]
+
+        if len(geom_inf) > 0:
+            atoms = [[line[0] for line in group] for group in geom_inf]
+            coords = [np.array([list(map(float,line[1])) for line in group]) for group in geom_inf]
+
+            xyz_dir = f"{geom_dir}/xyz"
+            os.makedirs(xyz_dir,exist_ok=True)
+            gjf_dir = f"{geom_dir}/gjf"
+            os.makedirs(gjf_dir,exist_ok=True)
+            skip_whole_file = False
+            for i,(atom,coord,title) in enumerate(zip(atoms,coords,title_lines)):
+                # to handle the abnormal cases of structure extraction
+                if len(atom) == 1:
+                    print(f"[WARN] Only one atom found, skip. File: {filename} molecular index: {i}")
+                    continue
+                elif not "H" in atom:
+                    print(f"[WARN] No hydrogen atom found, skip. File: {filename} molecular index: {i}")
+                    continue
+                elif not is_molecule_confortable(atom,coord,threshold_ratio=0.5):
+                    print(f"[WARN] Molecule is not comfortable, skip. File: {filename} molecular index: {i}")
+                    skip_whole_file = True
+                    break
+                elif not check_hydrogens(atom,coord,threshold_dist=2.0):
+                    print(f"[WARN] There are no heavy atom around hydrogen atoms, skip. File: {filename} molecular index: {i}")
+                    skip_whole_file = True
+                    break
+
+                xyz_file = f"{xyz_dir}/{i}.xyz"
+                gjf_file = f"{gjf_dir}/{i}.gjf"
+                charge,multi = get_charge_and_mult(atom,charge=0)
+                symbol_pos_to_xyz_file(atom,coord,xyz_file,title=title)
+                generate_gauss_input_file(gjf_file,atom,coord,charge,multi,method="p b3lyp/def2svp geom=PrintInputOrient",jobtype="opt",cpu=cpu,memory=mem,title=title)
+            if skip_whole_file:
+                print(f"[WARN] ++++++++++++++++++++ Skip whole file: {filename} ++++++++++++++++++++")
+                shutil.rmtree(geom_dir)
+            print(f"[INFO] ~~~~~~~~~~~~~~~~~~~~~~~~~~ {len(match_text_groups)} geometries found in {filename}, gjf and xyz files generated ~~~~~~~~~~~~~~~~~~~~~~~~~~")
+
