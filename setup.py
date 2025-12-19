@@ -1,7 +1,7 @@
 from setuptools import setup,find_packages
 setup(
     name="qcbot",
-    version="0.0.3",
+    version="0.0.4",
     description="Package for a bot for processing quantum calculation data",
     classifiers=["Development Status :: 1 - Pre-Alpha", "Topic :: Scientific/Engineering :: Chemistry"],
     keywords=[],
