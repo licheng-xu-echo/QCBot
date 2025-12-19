@@ -4,8 +4,6 @@ import numpy as np
 from collections import Counter
 pt = Chem.GetPeriodicTable()
 
-# API_KEY = "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" # from openrouter.ai
-# API_KEY = "sk-U6CCn1011i1Fa2Ap979TLUq5qQdRWvEGK6DW25uppoBngsjU" # from tencent
 def drop_page_id_line(page_lines,page_id,page_id_len=15,bias=3):
     while True:
         triggle = False
@@ -67,97 +65,84 @@ def drop_space(lines):
     return new_lines
     
 def check_s_number_pattern(s):
-    # 正则表达式模式：匹配"S"后紧跟至少一个数字
+    # Regular expression pattern: Matches "S" followed by at least one digit
     pattern = r'S\d+'
     return bool(re.search(pattern, s))
 
 def extract_json_dict1(input_str):
     """
-    从包含JSON的字符串中提取字典结构
-    支持处理代码块包裹、转义字符和格式修正
+    Extract the dictionary structure from a string containing JSON
+    Support handling code block wrapping, escape characters, and formatting correction
     """
     try:
-        # 清理代码块标记和转义字符（文献[2][6]）
+
         cleaned_str = re.sub(r'^```json\n|\n```$', '', input_str, flags=re.MULTILINE)
         cleaned_str = cleaned_str.replace('\\n', '\n').strip()
-        
-        # 处理可能存在的单引号问题（文献[5][7]）
         cleaned_str = cleaned_str.replace("'", '"')
-        
-        # 解析JSON（文献[1][4][8]）
         return json.loads(cleaned_str)
     
     except json.JSONDecodeError as e:
-        # 自动修复常见格式错误（文献[7]）
+        
         try:
-            # 尝试提取有效JSON部分（文献[2]）
             matches = re.findall(r'\{.*?\}', cleaned_str, flags=re.DOTALL)
             if matches:
                 return json.loads(max(matches, key=len))
             raise
         except:
-            raise ValueError(f"JSON解析失败：{str(e)}") from None
+            raise ValueError(f"JSON parse failed: {str(e)}") from None
 
 def extract_json_dict2(input_str):
     return eval(input_str)
 
 def extract_json_dict3(input_str):
-    """
-    增强版JSON提取函数，支持处理含特殊字符的键名
-    """
+
     try:
-        # 清理代码块标记和转义字符
         cleaned_str = re.sub(r'^```json\s*|\s*```$', '', input_str, flags=re.MULTILINE)
         cleaned_str = cleaned_str.replace('\\n', '\n').strip()
         
-        # 处理转义单引号（保留键名中的合法单引号）
         cleaned_str = cleaned_str.replace('\\\'', "'")
         
-        # 解析JSON
         return json.loads(cleaned_str)
     
     except json.JSONDecodeError as e:
         try:
-            # 自动修复常见格式错误
-            repaired_str = re.sub(r',(\s*[]}])', r'\1', cleaned_str)  # 移除尾部逗号
-            repaired_str = re.sub(r'[\x00-\x1F]', '', repaired_str)   # 移除控制字符
+            
+            repaired_str = re.sub(r',(\s*[]}])', r'\1', cleaned_str) 
+            repaired_str = re.sub(r'[\x00-\x1F]', '', repaired_str)   
             
             return json.loads(repaired_str)
         except:
-            raise ValueError(f"JSON解析失败：{str(e)}") from None
+            raise ValueError(f"JSON parse failed: {str(e)}") from None
         
 def extract_json_dict4(input_str):
-    """
-    增强版JSON解析函数，修复单引号和特殊符号问题
-    """
+
     try:
-        # 1. 清理代码块标记
+
         cleaned_str = re.sub(r'^```json\s*|\s*```$', '', input_str, flags=re.MULTILINE)
         
-        # 2. 处理单引号（分步替换）
         cleaned_str = (
             cleaned_str
-            .replace("\\'", "'")     # 恢复转义单引号
-            .replace("'", '"')       # 替换单引号为双引号
-            .replace('[\"', '["')    # 修复双引号转义
-            .replace('\"]', '"]')    # 修复数组闭合
+            .replace("\\'", "'")     
+            .replace("'", '"')       
+            .replace('[\"', '["')    
+            .replace('\"]', '"]')    
         )
         
-        # 3. 处理科学计数法数字（如1e-5）
+
         cleaned_str = re.sub(r'(\d)([-+])(\d)', r'\1e\2\3', cleaned_str)
         
-        # 4. 自动修复常见格式错误
-        repaired_str = re.sub(r',(\s*[\]}])', r'\1', cleaned_str)  # 移除尾部逗号
-        repaired_str = re.sub(r'[\x00-\x1F]', '', repaired_str)   # 删除控制字符
+
+        repaired_str = re.sub(r',(\s*[\]}])', r'\1', cleaned_str)  
+        repaired_str = re.sub(r'[\x00-\x1F]', '', repaired_str)  
         
-        # 5. 解析前验证
+
         return json.loads(repaired_str)
     
     except json.JSONDecodeError as e:
-        # 精确错误定位
+
         error_line = repaired_str.split('\n')[e.lineno - 1]
         error_ptr = ' ' * (e.colno - 1) + '^'
-        print(f"解析失败于第 {e.lineno} 行:\n{error_line}\n{error_ptr}")
+        print(f"parse failed in {e.lineno} line:\n{error_line}\n{error_ptr}")
         raise
 
 def extract_json_dict(input_str):
@@ -173,29 +158,23 @@ def extract_json_dict(input_str):
                 try:
                     return extract_json_dict4(input_str)
                 except:
-                    raise ValueError("JSON解析失败，请检查输入格式。")
+                    raise ValueError("JSON parse failed")
             
 def merge_fake_molecules(table):
-    """
-    将所有标号为 "XXXX" 的分子数据合并到之前最近的非 "XXXX" 标号中
-    参数:
-        table (list): 包含字典的列表，每个字典表示分子数据
-    返回:
-        list: 合并后的列表，所有 "XXXX" 数据已迁移到最近的合法标号
-    """
+
     last_valid_key = None
     last_valid_entry = None
     
     for entry in table:
-        # 遍历字典键的副本，避免修改冲突
+        
         for key in list(entry.keys()):
             if key == "XXXX":
                 if last_valid_entry and last_valid_key:
-                    # 合并到最近的合法标号
+                    
                     last_valid_entry[last_valid_key].extend(entry[key])
-                del entry[key]  # 移除已处理的 "XXXX" 键
+                del entry[key] 
             else:
-                # 更新最近的合法标号及对应字典
+                
                 last_valid_key = key
                 last_valid_entry = entry
                 
@@ -210,36 +189,33 @@ def symbol_pos_to_xyz_file(symbols,positions,xyz_file,title=""):
             
 def get_charge_and_mult(atoms, charge=0, is_atom=False):
     """
-    计算分子体系的电荷和自旋多重度
-    参数：
-        mol_input: 分子SMILES表达式 或 原子符号列表(如 ['C','H','H','H','H'])
-        charge: 预设电荷（默认0）
-        is_atom: 是否为单原子体系（需特殊处理）
-    返回：
+    Calculate the charges and spin multiplicities of the molecular system
+    Parameters:
+        mol_input: Molecular SMILES expression or list of atomic symbols (e.g. ['C','H','H','H','H'])
+        charge 
+        is_atom
+    Return:
         (charge, multiplicity)
     """
 
-
-    # 计算总电子数（原子序数之和 - 电荷）
     if isinstance(atoms[0],int):
         total_e = sum(atoms) - charge
     else:
         total_e = sum(pt.GetAtomicNumber(symbol) for symbol in atoms) - charge
-    multiplicity = 1  # 默认闭壳层
+    multiplicity = 1  # default 
 
-    # 自旋多重度判断逻辑
-    if total_e % 2 == 1:  # 奇数电子
+    if total_e % 2 == 1:  
         multiplicity = 2
-    elif is_atom:  # 单原子特殊处理[1,4](@ref)
+    elif is_atom:  
         atomic_num = pt.GetAtomicNumber(atoms[0])
         valence_e = get_valence_electrons(atomic_num)
         multiplicity = 2 * (valence_e % 2) + 1 if valence_e < 14 else 3
-    elif total_e == 0:  # 特殊情况处理
-        raise ValueError("电子总数不能为0")
+    elif total_e == 0:  
+        raise ValueError("The total number of electrons cannot be zero.")
 
     return (charge, multiplicity)
 
-def generate_g16_input_file(gjf_file,atoms,coords,charge,multiplicity,method,jobtype,cpu,memory,title="Generated by QuantumCalcAgent",ckpt=False):
+def generate_gauss_input_file(gjf_file,atoms,coords,charge,multiplicity,method,jobtype,cpu,memory,title="Generated by QuantumCalcAgent",ckpt=False):
     information = [
     f'%nproc={cpu}',
     f'%mem={memory}GB',
@@ -259,13 +235,13 @@ def generate_g16_input_file(gjf_file,atoms,coords,charge,multiplicity,method,job
         f.write("\n".join(information))
 
 def get_valence_electrons(atomic_num):
-    """获取原子的价电子数（简化版）"""
+
     period = pt.GetPeriod(atomic_num)
     group = pt.GetGroup(atomic_num)
     
     if period == 1: return 1
     if period == 2: return min(group, 8)
-    if period >=3:  # 过渡金属简化处理[4](@ref)
+    if period >=3:  
         return pt.GetNOuterElecs(atomic_num)
     return 0
 
@@ -287,85 +263,65 @@ def split_into_continuous_groups(nums):
     return groups
 
 def find_header_and_footer_elements(nested_list, threshold=10):
-    """
-    在嵌套列表中找到出现次数超过指定阈值的元素
-    
-    参数:
-    nested_list (list): 包含多个子列表的嵌套列表
-    threshold (int): 频率阈值，默认10次
-    
-    返回:
-    list: 超过阈值的元素列表
-    """
-    # 创建计数器对象
+
     element_counter = Counter()
     
-    # 遍历每个子列表进行计数
+    
     for sublist in nested_list:
         element_counter.update(sublist)
     
-    # 筛选符合条件的元素
     return [element for element, count in element_counter.items() if count > threshold and len(element) > 5]
 
 def parse_atom_coordinate(line):
     """
-    解析原子坐标行，提取元素符号和三维坐标
+    Parse the atomic coordinate lines and extract the element symbols and 3D coordinates
     
-    参数：
-    line (str): 原子坐标字符串，格式示例：
+    Parameters
+    line (str): Atomic coordinate string, format example:
                 "Rh-0.84075200 -1.17783800 -0.44030400"
                 "Rh -0.84075200 -1.17783800 -0.44030400"
                 "Rh-0.84075200 -1.17783800 -0."
     
-    返回：
-    tuple: (元素符号, [x坐标, y坐标, z坐标])
-           或 None（当格式不匹配时）
+    Return:
+    tuple: (Element symbol, [x, y, z])
+           or None (When the formats do not match)
     """
-    # 优化后的正则表达式模式
+
     pattern = re.compile(
-        r'^\s*'                          # 行首空格
-        r'([A-Za-z]{1,3})'               # 元素符号（组1）
-        r'\d*'                           # 可选原子编号
-        r'([-+]?\s*)?'                   # 符号与元素间的连接符（组2）
-        r'([+-]?\d+\.?\d*)'              # X坐标（组3）
-        r'\s+([+-]?\d+\.?\d*)'           # Y坐标（组4）
-        r'\s+([+-]?\d+\.?\d*)'           # Z坐标（组5）
-        r'\s*$'                          # 行尾空格
+        r'^\s*'                          
+        r'([A-Za-z]{1,3})'               
+        r'\d*'                           
+        r'([-+]?\s*)?'                   
+        r'([+-]?\d+\.?\d*)'              
+        r'\s+([+-]?\d+\.?\d*)'           
+        r'\s+([+-]?\d+\.?\d*)'           
+        r'\s*$'                          
     )
     
     match = pattern.match(line)
     if not match:
         return None
     
-    # 提取元素符号
     element = match.group(1)
-    
-    # 处理符号连接的特殊情况（如 Rh-0.5 → 需要合并符号和数值）
     x_coord = match.group(3)
-    if match.group(2):  # 如果存在连接符号
+    if match.group(2):  
         x_coord = match.group(2).strip() + x_coord
     
     return element, [x_coord, match.group(4), match.group(5)]
 
 def parse_atom_coordinatev2(line):
     """
-    将分子坐标行拆分为元素和坐标列表
+    Parse the atomic coordinate lines and extract the element symbols and 3D coordinates
     
-    参数:
-        line: 字符串，格式如 "N,0,0.5598740651,2.5536949817,1.2494624052"
+    Parameters
+    line (str): Atomic coordinate string, format example: "N,0,0.5598740651,2.5536949817,1.2494624052"
     
-    返回:
-        tuple: (element, xyz_list)
-            - element: 元素符号字符串，如 'N'
-            - xyz_list: 包含三个浮点数的列表，如 [0.5598740651, 2.5536949817, 1.2494624052]
+    Return:
+    tuple: (Element symbol, [x, y, z])
     """
-    # 按逗号分割字符串
+
     parts = line.strip().split(',')
-    
-    # 提取元素符号（第一个字段）
     element = parts[0]
-    
-    # 提取xyz坐标（最后三个字段）
     xyz_list = [float(coord) for coord in parts[-3:]]
     
     return element, xyz_list
